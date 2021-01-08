@@ -1,4 +1,5 @@
 include "vendor/glfwVendor"
+include "vendor/glad"
 
 project "TruetypeExamples"
     kind "ConsoleApp"
@@ -25,6 +26,7 @@ project "TruetypeExamples"
 	includedirs {
         "include",
 		"vendor/glfwVendor/include",
+		"vendor/glad/include",
 		"../Truetype/include"
 	}
 

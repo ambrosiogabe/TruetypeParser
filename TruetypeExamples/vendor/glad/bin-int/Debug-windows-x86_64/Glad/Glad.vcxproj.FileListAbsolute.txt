@@ -1,0 +1,2 @@
+C:\dev\C++\CocoaEngine\CocoaEngine\vendor\glad\bin\Debug-windows-x86_64\Glad\Glad.pdb
+C:\dev\C++\CocoaEngine\CocoaEngine\vendor\glad\bin-int\Debug-windows-x86_64\Glad\Glad.pdb
