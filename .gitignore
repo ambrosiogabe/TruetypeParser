@@ -355,3 +355,6 @@ MigrationBackup/
 *.vcxproj
 *.vcxproj.user
 *.bin
+
+bin/**
+bin-int/**
