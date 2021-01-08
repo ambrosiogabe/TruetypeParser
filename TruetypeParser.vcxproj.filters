@@ -20,13 +20,16 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="debugPrint.h">
+    <ClInclude Include="include\dataStructures.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="dataStructures.h">
+    <ClInclude Include="include\glyph.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="readData.h">
+    <ClInclude Include="include\readData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\writeData.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

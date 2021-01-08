@@ -142,9 +142,10 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="dataStructures.h" />
-    <ClInclude Include="debugPrint.h" />
-    <ClInclude Include="readData.h" />
+    <ClInclude Include="include\dataStructures.h" />
+    <ClInclude Include="include\glyph.h" />
+    <ClInclude Include="include\readData.h" />
+    <ClInclude Include="include\writeData.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
