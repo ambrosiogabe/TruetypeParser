@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "include/glyph.h"
+#include "glyph.h"
 
 int main()
 {
