@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <ProjectOutputs>
+    <ProjectOutput>
+      <FullPath>C:\dev\C++\TruetypeParser\TruetypeExamples\vendor\glfwVendor\bin\Debug-windows-x86_64\GLFW\GLFW.dll</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\dev\C++\TruetypeParser\bin\Debug-windows-x86_64\TruetypeExamples\TruetypeExamples.exe</FullPath>
+    </ProjectOutput>
+  </ProjectOutputs>
+  <ContentFiles />
+  <SatelliteDlls />
+  <NonRecipeFileRefs />
+</Project>

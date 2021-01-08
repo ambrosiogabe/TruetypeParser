@@ -7,9 +7,10 @@ workspace "Truetype"
         "Dist"
     }
 
-    startproject "Truetype"
+    startproject "TruetypeExamples"
 
 -- This is a helper variable, to concatenate the sys-arch
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 include "Truetype"
+include "TruetypeExamples"

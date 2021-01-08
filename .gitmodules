@@ -1,0 +1,3 @@
+[submodule "TruetypeExamples/vendor/glfwVendor"]
+	path = TruetypeExamples/vendor/glfwVendor
+	url = https://github.com/ambrosiogabe/glfw
