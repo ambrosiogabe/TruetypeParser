@@ -233,6 +233,41 @@ namespace Truetype
 
 			yPoints[i] = value;
 		}
+
+		uint16 p = 0;
+		uint16 c = 0;
+		uint16 first = 1;
+		float scale = 64.0f / fontInfo.unitsPerEm;
+		float width = fontInfo.xMax - fontInfo.xMin;
+		float height = fontInfo.yMax - fontInfo.yMin;
+		printf("canvas.width = %2.3f;\n", width * scale);
+		printf("canvas.height = %2.3f;\n", height * scale);
+		printf("var ctx = canvas.getContext(\"2d\");\n");
+		printf("ctx.scale(%2.3f, -%2.3f);\n", scale, scale);
+		printf("ctx.translate(%2.3f, %2.3f);\n", -fontInfo.xMin, -fontInfo.yMin - height);
+		printf("ctx.beginPath();\n");
+		while (p < numPoints)
+		{
+			int16 x = xPoints[p];
+			int16 y = yPoints[p];
+			if (first == 1)
+			{
+				printf("ctx.moveTo(%d, %d);\n", x, y);
+				first = 0;
+			}
+			else
+			{
+				printf("ctx.lineTo(%d, %d);\n", x, y);
+			}
+
+			if (p == contourEnds[c])
+			{
+				c++;
+				first = 1;
+			}
+
+			p++;
+		}
 	}
 
 	GlyphData getGlyphData(const Glyph& glyph, const FontInfo& fontInfo)
@@ -276,7 +311,7 @@ namespace Truetype
 
 		uint8* dataPtr = instructions + instructionsLength;
 		if (instructionsLength == 0) dataPtr++;
-		//printf("NumInstructions: %u\n", instructionsLength);
+		// TODO: ADD INSTRUCTION SUPPORT?
 
 		uint16* flagBuffer = (uint16*)malloc(sizeof(uint16) * numPoints);
 		int16* xPoints = (int16*)malloc(sizeof(int16) * numPoints);
@@ -291,7 +326,6 @@ namespace Truetype
 			if (flag & REPEAT)
 			{
 				uint8 repeatCount = getUint8(dataBuffer);
-				//printf("Repeat count: %u\n", repeatCount);
 				TTF_ASSERT(repeatCount > 0);
 				for (int j = 0; j < repeatCount; j++)
 				{
@@ -459,12 +493,12 @@ namespace Truetype
 		return true;
 	}
 
-	void writeInternalFont(FontInfo& fontInfo, const char* fontToWrite)
+	uint32 writeInternalFont(FontInfo& fontInfo, const char* fontToWrite)
 	{
 		if (!checkCompatibility(fontInfo))
 		{
 			printf("Incompatible font.\n");
-			return;
+			return 0;
 		}
 
 		uint8* writeBufferPtr = (uint8*)malloc(sizeof(uint8) * fontInfo.fontSize);
@@ -486,11 +520,6 @@ namespace Truetype
 
 			Glyph glyph = getGlyph(c, fontInfo);
 
-			if (c == 'a')
-			{
-				printf("'a' Addr: 0x%08x", currentPos);
-			}
-
 			if (glyph.simpleGlyphTable == nullptr)
 			{
 				writeUint16(writeBuffer, 0);
@@ -506,6 +535,23 @@ namespace Truetype
 			//drawGlyph(glyph, fontInfo);
 			GlyphData glyphData = getGlyphData(glyph, fontInfo);
 			writeUint16(writeBuffer, glyphData.numContours);
+
+			if (c == 'a')
+			{
+				printf("'a' Addr: 0x%08x\n", currentPos);
+				printf("'a' has %u numContours\n", glyphData.numContours);
+				printf("'a' has %u numPoints\n", glyphData.numPoints);
+				printf("'a' xRange: (%d, %d)\n", glyph.xMin, glyph.xMax);
+				printf("'a' yRange: (%d, %d)\n\n", glyph.yMin, glyph.yMax);
+				for (int i = 0; i < glyphData.numPoints; i++)
+				{
+					if (glyphData.flags[i] & 0x1)
+						printf("i %d: ON\n", i);
+					else
+						printf("i %d: OFF\n", i);
+					printf("(%d, %d)\n\n", glyphData.xCoords[i], glyphData.yCoords[i]);
+				}
+			}
 
 			for (int i = 0; i < glyphData.numContours; i++)
 			{
@@ -538,6 +584,8 @@ namespace Truetype
 
 		// Free write buffer
 		free(writeBufferPtr);
+
+		return writeBuffer.cursor / 4;
 	}
 
 	void parseFont(FontInfo& fontInfo)

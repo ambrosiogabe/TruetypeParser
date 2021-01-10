@@ -5,6 +5,7 @@ namespace Truetype
 {
 	void writeUint8(Buffer& buffer, uint8 data)
 	{
+		// TODO: Will the endianess of this differ on GPU when using big/little endian machines?
 		TTF_ASSERT(buffer.cursor < buffer.size&& buffer.cursor >= 0);
 		if (buffer.cursor >= buffer.size || buffer.cursor < 0)
 			return;
@@ -15,7 +16,7 @@ namespace Truetype
 	void write(Buffer& buffer, uint32 numBytes, uint8* data)
 	{
 		TTF_ASSERT(numBytes >= 1 && numBytes <= 8);
-		for (int i = numBytes - 1; i >= 0; i--)
+		for (int i = 0; i < numBytes; i++)
 			writeUint8(buffer, data[i]);
 	}
 
