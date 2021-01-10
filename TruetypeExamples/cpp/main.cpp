@@ -108,7 +108,7 @@ int main()
 		return 0;
 	}
 
-	printf("'a' is %u\n", 'a');
+	printf("'A' is %u\n", 'A');
 
 	fseek(file, 0, SEEK_END);
 	size_t size = ftell(file);

@@ -536,19 +536,20 @@ namespace Truetype
 			GlyphData glyphData = getGlyphData(glyph, fontInfo);
 			writeUint16(writeBuffer, glyphData.numContours);
 
-			if (c == 'a')
+			if (c == 'A')
 			{
-				printf("'a' Addr: 0x%08x\n", currentPos);
-				printf("'a' has %u numContours\n", glyphData.numContours);
-				printf("'a' has %u numPoints\n", glyphData.numPoints);
-				printf("'a' xRange: (%d, %d)\n", glyph.xMin, glyph.xMax);
-				printf("'a' yRange: (%d, %d)\n\n", glyph.yMin, glyph.yMax);
+				printf("'A' Addr: 0x%08x\n", currentPos);
+				printf("'A' has %u numContours\n", glyphData.numContours);
+				printf("'A' has %u numPoints\n", glyphData.numPoints);
+				printf("'A' xRange: (%d, %d)\n", glyph.xMin, glyph.xMax);
+				printf("'A' yRange: (%d, %d)\n\n", glyph.yMin, glyph.yMax);
 				for (int i = 0; i < glyphData.numPoints; i++)
 				{
 					if (glyphData.flags[i] & 0x1)
 						printf("i %d: ON\n", i);
 					else
 						printf("i %d: OFF\n", i);
+					printf("flag: %u", glyphData.flags[i]);
 					printf("(%d, %d)\n\n", glyphData.xCoords[i], glyphData.yCoords[i]);
 				}
 			}
@@ -566,12 +567,12 @@ namespace Truetype
 
 			for (int i = 0; i < glyphData.numPoints; i++)
 			{
-				writeUint16(writeBuffer, glyphData.xCoords[i]);
+				writeInt16(writeBuffer, glyphData.xCoords[i]);
 			}
 
 			for (int i = 0; i < glyphData.numPoints; i++)
 			{
-				writeUint16(writeBuffer, glyphData.yCoords[i]);
+				writeInt16(writeBuffer, glyphData.yCoords[i]);
 			}
 
 			freeGlyphData(glyphData);

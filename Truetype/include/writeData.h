@@ -25,6 +25,13 @@ namespace Truetype
 		write(buffer, 2, (uint8*)&data);
 	}
 
+	void writeInt16(Buffer& buffer, int16 data)
+	{
+		//uint16 dataToWrite = data;
+		//if (data < 0) dataToWrite -(int)(~data) - 1;
+		write(buffer, 2, (uint8*)&data);
+	}
+
 	void writeUint32(Buffer& buffer, uint32 data)
 	{
 		write(buffer, 4, (uint8*)&data);
