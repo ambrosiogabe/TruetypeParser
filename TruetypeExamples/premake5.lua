@@ -32,6 +32,7 @@ project "TruetypeExamples"
 
 	links {
 		"GLFW",
+		"Glad",
         "opengl32.lib",
 	}
 
@@ -43,6 +44,12 @@ project "TruetypeExamples"
 
 	filter "system:windows"
 		systemversion "latest"
+
+		postbuildcommands  {
+			"copy /y \"$(SolutionDir)TruetypeExamples\\vendor\\glfwVendor\\bin\\%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}\\GLFW\\GLFW.dll\" \"$(OutDir)\\GLFW.dll\"",
+			"copy /y \"myFont.bin\" \"$(OutDir)\\myFont.bin\"",
+			"xcopy /s /e /q /y /i \"$(SolutionDir)\\%{prj.name}\\assets\" \"$(OutDir)\\assets\" > nul"
+		}
     
 	filter "configurations:Debug"
 		runtime "Debug"
