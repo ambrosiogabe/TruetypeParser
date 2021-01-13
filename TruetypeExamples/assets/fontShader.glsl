@@ -164,19 +164,14 @@ void main()
 	{
 		uint offset = point;
 		uint contourEnd = texelFetch(uFont, contourTableOffset + int(i)).r + uint(1);
+		ivec2 contourBegin = ivec2(texelFetch(uFont, xTableOffset + int(contourEnd)).r, texelFetch(uFont, yTableOffset + int(contourEnd)).r);
+		ivec2 lastOnPoint = contourBegin;
+
 		for (;point < contourEnd; point++)
 		{
-			int i0NotMod = int(point);
-			int i0 = i0NotMod;
-			if (i0NotMod >= int(contourEnd)) { i0 = int(mod(i0NotMod, contourEnd) + offset); }
-
-			int i1NotMod = int(point) + 1;
-			int i1 = i1NotMod;
-			if (i1NotMod >= int(contourEnd)) { i1 = int(mod(i1NotMod, contourEnd) + offset); }
-
-			int i2NotMod = int(point) + 2;
-			int i2 = i2NotMod;
-			if (i2NotMod >= int(contourEnd)) { i2 = int(mod(i2NotMod, contourEnd) + offset); }
+			int i0 = int(point);
+			int i1 = int(point) + 1;
+			int i2 = int(point) + 2;
 
 			uint flag1 = texelFetch(uFont, flagTableOffset + i0).r;
 			uint flag2 = texelFetch(uFont, flagTableOffset + i1).r;
