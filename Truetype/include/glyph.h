@@ -12,6 +12,10 @@
 
 namespace Truetype
 {
+	// Functions to define 
+	GlyphData getGlyphData(const Glyph& glyph, const FontInfo& fontInfo);
+	void freeGlyphData(GlyphData& glyph);
+
 	uint32 findTableOffset(const char* fontData, const char* tag)
 	{
 		uint8* data = (uint8*)fontData;
@@ -165,6 +169,7 @@ namespace Truetype
 		float a = (float)p0y - 2.0f * (float)p1y + (float)p2y;
 		float b = (float)p0y - (float)p1y;
 		float c = (float)p0y;
+		if (c != -21.0f) return 0;
 
 		float squareRootOperand = max(b * b - a * c, 0);
 		float squareRoot = sqrt(squareRootOperand);
@@ -204,7 +209,7 @@ namespace Truetype
 		return calculateWindingNumber(p0x, p0y, midx, midy, p1x, p1y, x, y);
 	}
 
-	int calculateWindingNumber(int numPoints, bool* finalFlags, int16* xCoords, int16* yCoords, int numContours, uint16* contourEnds, int x, int y, const Glyph& glyph)
+	int calculateWindingNumber(int numPoints, uint16* finalFlags, int16* xCoords, int16* yCoords, int numContours, uint16* contourEnds, int x, int y, const Glyph& glyph)
 	{
 		float maxX = (float)glyph.xMax;
 		float minX = (float)glyph.xMin;
@@ -249,11 +254,56 @@ namespace Truetype
 
 	void drawSimpleGlyph(const Glyph& glyph, const FontInfo& fontInfo)
 	{
-		static uint8 flagBuffer[10000];
-		static int16 xPoints[10000];
-		static int16 yPoints[10000];
-		static uint16 contourEnds[10];
+		GlyphData glyphData = getGlyphData(glyph, fontInfo);
 
+		float scale = 128.0f / fontInfo.unitsPerEm;
+		int16 canvasWidth = 341;
+		int16 canvasHeight = 341;
+
+		uint8* fileOutput = (uint8*)malloc(sizeof(uint8) * 3 * canvasWidth * canvasHeight);
+		for (int y = 0; y < canvasHeight; y++)
+		{
+			for (int x = 0; x < canvasWidth * 3; x += 3)
+			{
+				int windingNumber = calculateWindingNumber(
+					glyphData.numPoints, 
+					glyphData.flags, 
+					glyphData.xCoords, 
+					glyphData.yCoords, 
+					glyph.numberOfContours, 
+					glyphData.contourEnds, 
+					x / 3, 
+					y, 
+					glyph
+				);
+				if (windingNumber == 0)
+				{
+					fileOutput[(y * canvasWidth * 3) + x + 0] = 0;
+					fileOutput[(y * canvasWidth * 3) + x + 1] = 0;
+					fileOutput[(y * canvasWidth * 3) + x + 2] = 0;
+				}
+				else
+				{
+					int16 color = abs(windingNumber) * 255.0f;
+					fileOutput[(y * canvasWidth * 3) + x + 0] = color;
+					fileOutput[(y * canvasWidth * 3) + x + 1] = color;
+					fileOutput[(y * canvasWidth * 3) + x + 2] = color;
+				}
+			}
+		}
+
+		stbi_flip_vertically_on_write(1);
+		if (!stbi_write_png("fontLetterA.png", canvasWidth, canvasHeight, 3, fileOutput, canvasWidth * 3))
+		{
+			printf("Failure!");
+		}
+
+		freeGlyphData(glyphData);
+		free(fileOutput);
+	}
+
+	GlyphData getGlyphData(const Glyph& glyph, const FontInfo& fontInfo)
+	{
 		static uint16 ON_CURVE = 0x01;
 		static uint16 X_IS_BYTE = 0x02;
 		static uint16 Y_IS_BYTE = 0x04;
@@ -267,9 +317,17 @@ namespace Truetype
 
 		if (glyph.numberOfContours == 0)
 		{
-			return;
+			return {
+				0,
+				nullptr,
+				0,
+				nullptr,
+				nullptr,
+				nullptr
+			};
 		}
 
+		uint16* contourEnds = (uint16*)malloc(sizeof(uint16) * glyph.numberOfContours);
 		uint16 numPoints = 0;
 		for (int i = 0; i < glyph.numberOfContours; i++)
 		{
@@ -280,21 +338,18 @@ namespace Truetype
 				numPoints = contourEnds[i];
 			}
 		}
-		if (numPoints == 0)
-		{
-			printf("Warning 0 points...\n");
-			return;
-		}
 		TTF_ASSERT(numPoints != 0);
 		numPoints++;
-		uint16 adjustedNumPoints = numPoints;
 
 		uint8* dataPtr = instructions + instructionsLength;
 		if (instructionsLength == 0) dataPtr++;
-		//printf("NumInstructions: %u\n", instructionsLength);
+		// TODO: ADD INSTRUCTION SUPPORT?
+
+		uint16* flagBuffer = (uint16*)malloc(sizeof(uint16) * numPoints);
+		int16* xPoints = (int16*)malloc(sizeof(int16) * numPoints);
+		int16* yPoints = (int16*)malloc(sizeof(int16) * numPoints);
 
 		Buffer dataBuffer = getBuffer(dataPtr, fontInfo);
-		bool onCurve = true;
 		for (uint16 i = 0; i < numPoints; i++)
 		{
 			uint8 flag = getUint8(dataBuffer);
@@ -303,7 +358,6 @@ namespace Truetype
 			if (flag & REPEAT)
 			{
 				uint8 repeatCount = getUint8(dataBuffer);
-				//printf("Repeat count: %u\n", repeatCount);
 				TTF_ASSERT(repeatCount > 0);
 				for (int j = 0; j < repeatCount; j++)
 				{
@@ -311,9 +365,17 @@ namespace Truetype
 				}
 				i += repeatCount;
 			}
+		}
 
+		// Get an adjusted number of points by counting "ghost" points
+		uint16 adjustedNumPoints = numPoints;
+		bool onCurve = true;
+		for (uint16 i = 0; i < numPoints; i++)
+		{
+			uint16 flag = flagBuffer[i];
 			if (!(flag & ON_CURVE) && !onCurve)
 			{
+				// If we are between two "off" points, add this "ghost" point
 				adjustedNumPoints++;
 			}
 
@@ -325,6 +387,7 @@ namespace Truetype
 			{
 				onCurve = true;
 			}
+
 		}
 
 		// We read all the flags, now we are at xcoords
@@ -376,9 +439,9 @@ namespace Truetype
 		}
 
 		adjustedNumPoints += glyph.numberOfContours;
-		int16* finalXCoords = (int16*)malloc(sizeof(int16) * adjustedNumPoints);
-		int16* finalYCoords = (int16*)malloc(sizeof(int16) * adjustedNumPoints);
-		bool* finalFlags = (bool*)malloc(sizeof(bool) * adjustedNumPoints);
+		int16* finalXPoints = (int16*)malloc(sizeof(int16) * adjustedNumPoints);
+		int16* finalYPoints = (int16*)malloc(sizeof(int16) * adjustedNumPoints);
+		uint16* finalFlags = (uint16*)malloc(sizeof(uint16) * adjustedNumPoints);
 		int currentIndex = 0;
 		uint16 contourBegin = 0;
 		uint16 c = 0;
@@ -387,43 +450,38 @@ namespace Truetype
 			// Two off points, generate in between on points
 			if (i < numPoints - 1 && !(flagBuffer[i] & ON_CURVE) && !(flagBuffer[i + 1] & ON_CURVE))
 			{
-				finalXCoords[currentIndex] = xPoints[i];
-				finalYCoords[currentIndex] = yPoints[i];
+				finalXPoints[currentIndex] = xPoints[i];
+				finalYPoints[currentIndex] = yPoints[i];
 				finalFlags[currentIndex] = false;
-				printf("i:%d  (%d, %d) %d\n", currentIndex, finalXCoords[currentIndex], finalYCoords[currentIndex], finalFlags[currentIndex]);
 				currentIndex++;
 				// While off curve, copy new points in
-				while (i < numPoints - 1 && !(flagBuffer[i] & ON_CURVE) && !(flagBuffer[i + 1] & ON_CURVE))
+				while (i <= contourEnds[c] && !(flagBuffer[i] & ON_CURVE) && !(flagBuffer[i + 1] & ON_CURVE))
 				{
-					finalXCoords[currentIndex] = (xPoints[i] + xPoints[i + 1]) / 2;
-					finalYCoords[currentIndex] = (yPoints[i] + yPoints[i + 1]) / 2;
-					finalFlags[currentIndex] = true;
-					printf("i:%d  (%d, %d) %d\n", currentIndex, finalXCoords[currentIndex], finalYCoords[currentIndex], finalFlags[currentIndex]);
+					finalXPoints[currentIndex] = (xPoints[i] + xPoints[i + 1]) / 2;
+					finalYPoints[currentIndex] = (yPoints[i] + yPoints[i + 1]) / 2;
+					finalFlags[currentIndex] = 1;
 					currentIndex++;
-					finalXCoords[currentIndex] = xPoints[i + 1];
-					finalYCoords[currentIndex] = yPoints[i + 1];
-					finalFlags[currentIndex] = false;
-					printf("i:%d  (%d, %d) %d\n", currentIndex, finalXCoords[currentIndex], finalYCoords[currentIndex], finalFlags[currentIndex]);
+					finalXPoints[currentIndex] = xPoints[i + 1];
+					finalYPoints[currentIndex] = yPoints[i + 1];
+					finalFlags[currentIndex] = 0;
 					currentIndex++;
 					i++;
 				}
 			}
 			else
 			{
-				finalXCoords[currentIndex] = xPoints[i];
-				finalYCoords[currentIndex] = yPoints[i];
-				finalFlags[currentIndex] = flagBuffer[i] & ON_CURVE;
-				printf("i:%d  (%d, %d) %d\n", currentIndex, finalXCoords[currentIndex], finalYCoords[currentIndex], finalFlags[currentIndex]);
+				finalXPoints[currentIndex] = xPoints[i];
+				finalYPoints[currentIndex] = yPoints[i];
+				finalFlags[currentIndex] = flagBuffer[i] & ON_CURVE ? 1 : 0;
 				currentIndex++;
 			}
 
 			if (i >= contourEnds[c])
 			{
 				// If we're at the end of a contour, add one extra point to connect the last point to the first point
-				finalXCoords[currentIndex] = finalXCoords[contourBegin];
-				finalYCoords[currentIndex] = finalYCoords[contourBegin];
+				finalXPoints[currentIndex] = finalXPoints[contourBegin];
+				finalYPoints[currentIndex] = finalYPoints[contourBegin];
 				finalFlags[currentIndex] = finalFlags[contourBegin];
-				printf("Ci:%d  (%d, %d) %d\n", currentIndex, finalXCoords[currentIndex], finalYCoords[currentIndex], finalFlags[currentIndex]);
 				contourEnds[c] = currentIndex;
 				contourBegin = currentIndex + 1;
 				currentIndex++;
@@ -431,201 +489,17 @@ namespace Truetype
 			}
 		}
 
-		float scale = 128.0f / fontInfo.unitsPerEm;
-		int16 canvasWidth = 341;
-		int16 canvasHeight = 341;
-		printf("Adjusted points: %u\n", adjustedNumPoints);
-
-		uint8* fileOutput = (uint8*)malloc(sizeof(uint8) * 3 * canvasWidth * canvasHeight);
-		for (int y = 0; y < canvasHeight; y++)
-		{
-			for (int x = 0; x < canvasWidth * 3; x += 3)
-			{
-				int windingNumber = calculateWindingNumber(adjustedNumPoints, finalFlags, finalXCoords, finalYCoords, glyph.numberOfContours, contourEnds, x / 3, y, glyph);
-				if (windingNumber == 0)
-				{
-					fileOutput[(y * canvasWidth * 3) + x + 0] = 0;
-					fileOutput[(y * canvasWidth * 3) + x + 1] = 0;
-					fileOutput[(y * canvasWidth * 3) + x + 2] = 0;
-				}
-				else
-				{
-					int16 color = abs(windingNumber) * 255.0f;
-					fileOutput[(y * canvasWidth * 3) + x + 0] = color;
-					fileOutput[(y * canvasWidth * 3) + x + 1] = color;
-					fileOutput[(y * canvasWidth * 3) + x + 2] = color;
-				}
-			}
-		}
-
-		stbi_flip_vertically_on_write(1);
-		if (!stbi_write_png("fontLetterA.png", canvasWidth, canvasHeight, 3, fileOutput, canvasWidth * 3))
-		{
-			printf("Failure!");
-		}
-
-		free(finalXCoords);
-		free(finalYCoords);
-		free(finalFlags);
-		free(fileOutput);
-
-		// Let's use that data now to create a new list of points
-
-		//uint16 p = 0;
-		//uint16 c = 0;
-		//uint16 first = 1;
-		//float scale = 64.0f / fontInfo.unitsPerEm;
-		//float width = fontInfo.xMax - fontInfo.xMin;
-		//float height = fontInfo.yMax - fontInfo.yMin;
-		//printf("canvas.width = %2.3f;\n", width * scale);
-		//printf("canvas.height = %2.3f;\n", height * scale);
-		//printf("var ctx = canvas.getContext(\"2d\");\n");
-		//printf("ctx.scale(%2.3f, -%2.3f);\n", scale, scale);
-		//printf("ctx.translate(%2.3f, %2.3f);\n", -fontInfo.xMin, -fontInfo.yMin - height);
-		//printf("ctx.beginPath();\n");
-		//while (p < numPoints)
-		//{
-		//	int16 x = xPoints[p];
-		//	int16 y = yPoints[p];
-		//	if (first == 1)
-		//	{
-		//		printf("ctx.moveTo(%d, %d);\n", x, y);
-		//		first = 0;
-		//	}
-		//	else
-		//	{
-		//		printf("ctx.lineTo(%d, %d);\n", x, y);
-		//	}
-
-		//	if (p == contourEnds[c])
-		//	{
-		//		c++;
-		//		first = 1;
-		//	}
-
-		//	p++;
-		//}
-	}
-
-	GlyphData getGlyphData(const Glyph& glyph, const FontInfo& fontInfo)
-	{
-		static uint16 ON_CURVE = 0x01;
-		static uint16 X_IS_BYTE = 0x02;
-		static uint16 Y_IS_BYTE = 0x04;
-		static uint16 REPEAT = 0x08;
-		static uint16 X_DELTA = 0x10;
-		static uint16 Y_DELTA = 0x20;
-
-		uint16* endPtsOfContours = (uint16*)glyph.simpleGlyphTable;
-		uint16 instructionsLength = toUShort((uint8*)&endPtsOfContours[glyph.numberOfContours]);
-		uint8* instructions = (uint8*)(endPtsOfContours + glyph.numberOfContours + 1);
-
-		if (glyph.numberOfContours == 0)
-		{
-			return {
-				0,
-				nullptr,
-				0,
-				nullptr,
-				nullptr,
-				nullptr
-			};
-		}
-
-		uint16* contourEnds = (uint16*)malloc(sizeof(uint16) * glyph.numberOfContours);
-		uint16 numPoints = 0;
-		for (int i = 0; i < glyph.numberOfContours; i++)
-		{
-			contourEnds[i] = toUShort((uint8*)(endPtsOfContours + i));
-			if (contourEnds[i] > numPoints)
-			{
-				numPoints = contourEnds[i];
-			}
-		}
-		TTF_ASSERT(numPoints != 0);
-		numPoints++;
-
-		uint8* dataPtr = instructions + instructionsLength;
-		if (instructionsLength == 0) dataPtr++;
-		// TODO: ADD INSTRUCTION SUPPORT?
-
-		uint16* flagBuffer = (uint16*)malloc(sizeof(uint16) * numPoints);
-		int16* xPoints = (int16*)malloc(sizeof(int16) * numPoints);
-		int16* yPoints = (int16*)malloc(sizeof(int16) * numPoints);
-
-		Buffer dataBuffer = getBuffer(dataPtr, fontInfo);
-		for (uint16 i = 0; i < numPoints; i++)
-		{
-			uint8 flag = getUint8(dataBuffer);
-			flagBuffer[i] = flag;
-
-			if (flag & REPEAT)
-			{
-				uint8 repeatCount = getUint8(dataBuffer);
-				TTF_ASSERT(repeatCount > 0);
-				for (int j = 0; j < repeatCount; j++)
-				{
-					flagBuffer[i + j + 1] = flag;
-				}
-				i += repeatCount;
-			}
-		}
-
-		// We read all the flags, now we are at xcoords
-		int16 value = 0;
-		for (uint16 i = 0; i < numPoints; i++)
-		{
-			uint16 flag = flagBuffer[i];
-			if (flag & X_IS_BYTE)
-			{
-				if (flag & X_DELTA)
-				{
-					value += getUint8(dataBuffer);
-				}
-				else
-				{
-					value -= getUint8(dataBuffer);
-				}
-			}
-			else if (~flag & X_DELTA)
-			{
-				value += getInt16(dataBuffer);
-			}
-
-			xPoints[i] = value;
-		}
-
-		// Now we are at y coords
-		value = 0;
-		for (uint16 i = 0; i < numPoints; i++)
-		{
-			uint16 flag = flagBuffer[i];
-			if (flag & Y_IS_BYTE)
-			{
-				if (flag & Y_DELTA)
-				{
-					value += getUint8(dataBuffer);
-				}
-				else
-				{
-					value -= getUint8(dataBuffer);
-				}
-			}
-			else if (~flag & Y_DELTA)
-			{
-				value += getInt16(dataBuffer);
-			}
-
-			yPoints[i] = value;
-		}
+		free(flagBuffer);
+		free(xPoints);
+		free(yPoints);
 
 		return {
 			glyph.numberOfContours,
 			contourEnds,
-			numPoints,
-			flagBuffer,
-			xPoints,
-			yPoints
+			adjustedNumPoints,
+			finalFlags,
+			finalXPoints,
+			finalYPoints
 		};
 	}
 
@@ -755,7 +629,6 @@ namespace Truetype
 			writeUint32(writeBufferBegin, currentPos);
 
 			Glyph glyph = getGlyph(c, fontInfo);
-
 			if (glyph.simpleGlyphTable == nullptr)
 			{
 				writeUint16(writeBuffer, 0);
@@ -768,28 +641,8 @@ namespace Truetype
 				continue;
 			}
 
-			//drawGlyph(glyph, fontInfo);
 			GlyphData glyphData = getGlyphData(glyph, fontInfo);
 			writeUint16(writeBuffer, glyphData.numContours);
-
-			if (c == 0x00be)
-			{
-				drawGlyph(glyph, fontInfo);
-				printf("'%c' Addr: 0x%08x\n", c, currentPos);
-				printf("'%c' has %u numContours\n", c, glyphData.numContours);
-				printf("'%c' has %u numPoints\n", c, glyphData.numPoints);
-				printf("'%c' xRange: (%d, %d)\n", c, glyph.xMin, glyph.xMax);
-				printf("'%c' yRange: (%d, %d)\n\n", c, glyph.yMin, glyph.yMax);
-				for (int i = 0; i < glyphData.numPoints; i++)
-				{
-					if (glyphData.flags[i] & 0x1)
-						printf("i %d: ON\n", i);
-					else
-						printf("i %d: OFF\n", i);
-					printf("flag: %u", glyphData.flags[i]);
-					printf("(%d, %d)\n\n", glyphData.xCoords[i], glyphData.yCoords[i]);
-				}
-			}
 
 			for (int i = 0; i < glyphData.numContours; i++)
 			{

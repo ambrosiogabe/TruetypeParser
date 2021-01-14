@@ -3,9 +3,15 @@
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
 layout(location = 2) in uint aCharacterId;
+layout(location = 3) in ivec2 aCharMin;
+layout(location = 4) in ivec2 aCharMax;
+layout(location = 5) in vec2 aTexCoord;
 
 out vec3 fColor;
 out vec2 fPos;
+out vec2 fTexCoord;
+flat out ivec2 fCharMin;
+flat out ivec2 fCharMax;
 flat out uint fCharacterId;
 
 void main() 
@@ -13,6 +19,9 @@ void main()
 	fColor = aColor;
 	fCharacterId = aCharacterId;
 	fPos = aPos.xy;
+	fCharMin = aCharMin;
+	fCharMax = aCharMax;
+	fTexCoord = aTexCoord;
 	gl_Position = vec4(aPos, 1.0);
 }
 
@@ -22,7 +31,10 @@ out vec4 color;
 
 in vec2 fPos;
 in vec3 fColor;
+in vec2 fTexCoord;
 flat in uint fCharacterId;
+flat in ivec2 fCharMin;
+flat in ivec2 fCharMax;
 
 uniform uint uTextureSize;
 uniform usamplerBuffer uFont;
@@ -30,102 +42,58 @@ uniform usamplerBuffer uFont;
 void parametric(in int p0, in int p1, in int p2, in float t, inout int result)
 {
 	// Calculate the parametric equation for bezier curve using cValue as the parameter 
-	float floatResult = ((1 - t) * (1 - t)) * float(p0) + 2 * t * float(p1) * (1 - t) + (t * t) * float(p2);
+	float tSquared = t * t;
+	float oneMinusT = (1.0 - t);
+	float oneMinusTSquared = oneMinusT * oneMinusT;
+	float floatResult = (oneMinusTSquared * float(p0)) + (2.0 * t * float(p1) * oneMinusT) + (tSquared * float(p2));
 	result = int(floatResult);
 }
 
-void parametric(in int p0, in int p1, in float t, inout int result)
+void calculateWindingNumber(in ivec2 p0, in ivec2 p1, in ivec2 p2, in ivec2 pixelCoords, inout float windingNumber)
 {
-	// Calculate the parametric equation for bezier curve using cValue as the parameter 
-	float floatResult = float(p0) + ( (float(p1) - float(p0)) * t);
-	result = int(floatResult);
+		// Translate the points to x's local space
+		p0 -= pixelCoords;
+		p1 -= pixelCoords;
+		p2 -= pixelCoords;
+
+		float a = float(p0.y) - 2.0 * float(p1.y) + float(p2.y);
+		float b = float(p0.y) - float(p1.y);
+		float c = float(p0.y);
+
+		float squareRootOperand = max(b * b - a * c, 0);
+		float squareRoot = sqrt(squareRootOperand);
+
+		float t0 = (b - squareRoot) / a;
+		float t1 = (b + squareRoot) / a;
+		if (abs(a) < 0.0001)
+		{
+			// If a is nearly 0, solve for a linear equation instead of a quadratic equation
+			t0 = t1 = c / (2.0 * b);
+		}
+
+		uint magicNumber = 0x2E74U;
+		uint shiftAmount = ((p0.y > 0) ? 2U : 0U) + ((p1.y > 0) ? 4U : 0U) + ((p2.y > 0) ? 8U : 0U);
+		uint shiftedMagicNumber = magicNumber >> shiftAmount;
+
+		int cxt0 = -1;
+		parametric(p0.x, p1.x, p2.x, t0, cxt0);
+		int cxt1 = -1;
+		parametric(p0.x, p1.x, p2.x, t1, cxt1);
+
+		if ((shiftedMagicNumber & 1U) != 0U && cxt0 >= 0)
+		{
+			windingNumber += clamp(0.08 * cxt0 + 0.5, 0, 1);
+		}
+		if ((shiftedMagicNumber & 2U) != 0U && cxt1 >= 0)
+		{
+			windingNumber -= clamp(0.08 * cxt1 + 0.5, 0, 1);
+		}
 }
 
-void getIntersection(in ivec2 p0, in ivec2 p1, in float t, inout int windingNumber)
+void calculateWindingNumber(in ivec2 p0, in ivec2 p1, in ivec2 pixelCoords, inout float windingNumber)
 {
-	float midpoint = t / 2.0;
-	int y = 0;
-	parametric(p0.y, p1.y, midpoint, y);
-		
-	if (y > 0) { windingNumber--; }
-	else if (y < 0) { windingNumber++; }
-}
-
-void getIntersection(in ivec2 p0, in ivec2 p1, in ivec2 p2, in float t, in float minX, inout int windingNumber)
-{
-	int cx = -1;
-	parametric(p0.x, p1.x, p2.x, t, cx);
-	if (cx < minX) { return; }
-
-	float midpoint = t / 2.0;
-	int y = 0;
-	parametric(p0.y, p1.y, p2.y, midpoint, y);
-		
-	if (y > 0) { windingNumber--; }
-	else if (y < 0) { windingNumber++; }
-}
-
-void calculateWindingNumber(in ivec2 p0, in ivec2 p1, in ivec2 x, inout int windingNumber)
-{
-	// Translate the points to x's local space
-	p0 -= x;
-	p1 -= x;
-
-	float t = (-float(p0.y)) / (float(p1.y) - float(p0.y));
-	int cx = -1;
-	parametric(p0.x, p1.x, t, cx);
-	if (t >= 0 && t < 1 && cx >= 0)
-	{
-		// T is a root and intersects the ray
-		getIntersection(p0, p1, t, windingNumber);
-	}
-}
-
-void calculateWindingNumber(in ivec2 p0, in ivec2 p1, in ivec2 p2, in ivec2 x, inout int windingNumber)
-{
-	// Translate the points to x's local space
-	p0 -= x;
-	p1 -= x;
-	p2 -= x;
-
-	float a = float(p1.y) - 2.0 * float(p0.y) + float(p2.y);
-	float b = float(p1.y) - float(p0.y);
-	float c = float(p0.y);
-	
-	float squareRootOperand = b * b - a * c;
-	if (squareRootOperand < 0)
-	{
-		return;
-	}
-
-	float squareRoot = sqrt(squareRootOperand);
-	float t0 = (b - squareRoot) / a;
-	float t1 = (b + squareRoot) / a;
-
-	if (a < 0.1)
-	{
-		t0 = c / (2.0 * b);
-		t1 = c / (2.0 * b);
-	}
-
-	if (t0 >= 0 && t0 < 1 && !(t1 >= 0 && t1 < 1))
-	{
-		// T0 is the only root
-		getIntersection(p0, p1, p2, t0, 0.0, windingNumber);
-	}
-	else if (t1 >= 0 && t1 < 1 && !(t0 >= 0 && t0 < 1))
-	{
-		// T1 is the only root and we have intersected 
-		getIntersection(p0, p1, p2, t1, 0.0, windingNumber);
-	}
-	else if (t0 >= 0 && t0 < 1 && t1 >= 0 && t1 < 1)
-	{
-		// FIXME 
-		// T0 and T1 are roots and have intersected
-		// Only examine the t values between the roots
-		getIntersection(p0, p1, p2, t0, t0, windingNumber);
-		getIntersection(p0, p1, p2, t1, t1, windingNumber);
-	}
+	// Treat like bezier curve with control point in linear fashion
+	calculateWindingNumber(p0, (p0 + p1) / 2, p1, pixelCoords, windingNumber);
 }
 
 void convert(in uint val, inout int res)
@@ -136,60 +104,53 @@ void convert(in uint val, inout int res)
 
 void main() 
 {	
-	float maxX = 1369.0;
-	float minX = -3.0;
-	float maxY = 1466.0;
-	float minY = 0.0;
+	float maxX = float(fCharMax.x);
+	float maxY = float(fCharMax.y);
+	float minX = float(fCharMin.x);
+	float minY = float(fCharMin.y);
 
-	float newX = (fPos.x - (-0.5)) / (0.5 - (-0.5)) * (maxX - minX) + minX;
-	float newY = (fPos.y - (-0.5)) / (0.5 - (-0.5)) * (maxY - minY) + minY;
+	float newX = fTexCoord.x * (maxX - minX) + minX;
+	float newY = fTexCoord.y * (maxY - minY) + minY;
 	ivec2 pixelCoords = ivec2(int(newX), int(newY));
 
 	uint numGlyphs = texelFetch(uFont, 0).r | (texelFetch(uFont, 1).r << 8);
 	// Divide by 2 since offset is in bytes, but we are indexing as shorts (8 bit vs 16 bit)
 	// 66 is the codepoint for the character 'A' + 1
-	uint aOffsetUint = (texelFetch(uFont, 66 * 2).r | (texelFetch(uFont, 66 * 2 + 1).r << 8)) >> 1;
-	int aOffset = int(aOffsetUint);
-	uint numContours = texelFetch(uFont, aOffset).r;
-	uint numPoints = texelFetch(uFont, aOffset + int(numContours) + 1).r;
-	int contourTableOffset = aOffset + 1;
+	uint codepoint = uint(fCharacterId) + 1U;
+	uint glyphOffsetU = (texelFetch(uFont, int(codepoint * 2U)).r | (texelFetch(uFont, int(codepoint * 2U + 1U)).r << 8)) >> 1;
+	int glyphOffset = int(glyphOffsetU);
+	uint numContours = texelFetch(uFont, glyphOffset).r;
+	uint numPoints = texelFetch(uFont, glyphOffset + int(numContours) + 1).r;
+	int contourTableOffset = glyphOffset + 1;
 	int flagTableOffset = contourTableOffset + int(numContours) + 1;
 	int xTableOffset = flagTableOffset + int(numPoints);
 	int yTableOffset = xTableOffset + int(numPoints);
 
 	// If the winding number is 0, pixel is off, otherwise pixel is on
-	int windingNumber = int(0);
-	uint point = uint(0);
-	for (uint i=uint(0); i <= numContours; i++)
+	float windingNumber = 0.0;
+	uint point = 0U;
+	for (uint i = 0U; i < numContours; i++)
 	{
-		uint offset = point;
-		uint contourEnd = texelFetch(uFont, contourTableOffset + int(i)).r + uint(1);
-		ivec2 contourBegin = ivec2(texelFetch(uFont, xTableOffset + int(contourEnd)).r, texelFetch(uFont, yTableOffset + int(contourEnd)).r);
-		ivec2 lastOnPoint = contourBegin;
-
-		for (;point < contourEnd; point++)
+		uint contourEnd = texelFetch(uFont, contourTableOffset + int(i)).r;
+		for (; point < contourEnd; point++)
 		{
-			int i0 = int(point);
-			int i1 = int(point) + 1;
-			int i2 = int(point) + 2;
-
-			uint flag1 = texelFetch(uFont, flagTableOffset + i0).r;
-			uint flag2 = texelFetch(uFont, flagTableOffset + i1).r;
-			uint flag3 = texelFetch(uFont, flagTableOffset + i2).r;
+			bool flag1 = texelFetch(uFont, flagTableOffset + int(point + 0U)).r == 1U;
+			bool flag2 = texelFetch(uFont, flagTableOffset + int(point + 1U)).r == 1U;
+			bool flag3 = texelFetch(uFont, flagTableOffset + int(point + 2U)).r == 1U;
 
 			int x1 = 0;
-			convert(texelFetch(uFont, xTableOffset + i0).r, x1);
+			convert(texelFetch(uFont, xTableOffset + int(point) + 0).r, x1);
 			int x2 = 0;
-			convert(texelFetch(uFont, xTableOffset + i1).r, x2);
+			convert(texelFetch(uFont, xTableOffset + int(point) + 1).r, x2);
 			int x3 = 0;
-			convert(texelFetch(uFont, xTableOffset + i2).r, x3);
+			convert(texelFetch(uFont, xTableOffset + int(point) + 2).r, x3);
 
 			int y1 = 0;
-			convert(texelFetch(uFont, yTableOffset + i0).r, y1);
+			convert(texelFetch(uFont, yTableOffset + int(point) + 0).r, y1);
 			int y2 = 0;
-			convert(texelFetch(uFont, yTableOffset + i1).r, y2);
+			convert(texelFetch(uFont, yTableOffset + int(point) + 1).r, y2);
 			int y3 = 0;
-			convert(texelFetch(uFont, yTableOffset + i2).r, y3);
+			convert(texelFetch(uFont, yTableOffset + int(point) + 2).r, y3);
 
 			ivec2 p1 = ivec2(x1, y1);
 			ivec2 p2 = ivec2(x2, y2);
@@ -197,58 +158,22 @@ void main()
 
 			// 0x01 is the flag for ON_CURVE_POINT
 			// Two on points means it's a straight line
-			if ((flag1 & uint(1)) != uint(0) && (flag2 & uint(1)) != uint(0) && i1NotMod <= int(contourEnd)) 
+			if (flag1 && flag2)
 			{
 				calculateWindingNumber(p1, p2, pixelCoords, windingNumber);
 			}
 			// On point, off point, on point is a standard bezier curve
-			else if ((flag1 & uint(1)) != uint(0) && (flag2 & uint(1)) == uint(0) && (flag3 & uint(1)) != uint(0))
+			else if (flag1 && !flag2 && flag3)
 			{
-				// We enter here.
 				calculateWindingNumber(p1, p2, p3, pixelCoords, windingNumber);
 				point++;
 			}
-			// On point, off point, off point, implies ghost point between p2 and p3
-			else if ((flag1 & uint(1)) != uint(0) && (flag2 & uint(1)) == uint(0) && (flag3 & uint(1)) == uint(0))
-			{
-				// Ghost point (no ++ maybe?)
-				ivec2 fakeMidpoint = ivec2(p2.x + p3.x / int(2), p2.y + p3.y / int(2));
-				//calculateWindingNumber(p1, p2, fakeMidpoint, pixelCoords, windingNumber);
-			}
-			// Off point, off point, off point implies two ghost points 
-			else if ((flag1 & uint(1)) == uint(0) && (flag2 & uint(1)) == uint(0) && (flag3 & uint(1)) == uint(0))
-			{
-				// Two ghost points (no ++ maybe?)
-				ivec2 fakeP1 = ivec2(p1.x + p2.x / int(2), p1.y + p2.y / int(2));
-				ivec2 fakeP2 = ivec2(p2.x + p3.x / int(2), p2.y + p3.y / int(2));
-				//calculateWindingNumber(fakeP1, p1, fakeP2, pixelCoords, windingNumber);
-			}
-			// Off point, off point, on point implies one fake ghost point between p1 and p2
-			else if ((flag1 & uint(1)) == uint(0) && (flag2 & uint(1)) == uint(0) && (flag3 & uint(1)) != uint(0))
-			{
-				// Ghost point
-				ivec2 fakeMidpoint = ivec2(p1.x + p2.x / int(2), p1.y + p2.y / int(2));
-				//calculateWindingNumber(p1, p2, fakeMidpoint, pixelCoords, windingNumber);
-				point++;
-			}
-
-			// TODO: is this double counting?
-			// Extra if to see if we need to connect the last two points
-			if ((flag2 & uint(1)) != uint(0) && (flag3 & uint(1)) != uint(0) && i2NotMod < int(contourEnd) - 1)
-			{
-				// If p3 is also on, connect it as well 
-				calculateWindingNumber(p2, p3, pixelCoords, windingNumber);
-				point++;
-			}
 		}
-
-		// Reset the point to the beginning of the next contour
-		point = contourEnd;
+		point++;
 	}
 
-	if (windingNumber == 0) {
-		color = vec4(0, 0, 0, 1);
-	} else {
-		color = vec4(1, 1, 1, 1);	
-	}
+	// Ternary or clamp? Which is faster?
+	//float c = min(max(abs(windingNumber), 0), 1);
+	float c = windingNumber;
+	color = vec4(c, c, c, c);
 }
