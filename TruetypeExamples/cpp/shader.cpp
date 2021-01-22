@@ -5,6 +5,8 @@
 #include <fstream>
 #include <array>
 
+#include <glm/gtc/type_ptr.hpp>
+
 static GLenum ShaderTypeFromString(const std::string& type)
 {
 	if (type == "vertex")
@@ -162,6 +164,27 @@ GLuint Shader::GetVariableLocation(const char* varName)
 	return varLocation;
 }
 
+void Shader::UploadVec4(const char* varName, const glm::vec4& vec4)
+{
+	int varLocation = GetVariableLocation(varName);
+	if (!m_BeingUsed) this->Bind();
+	glUniform4f(varLocation, vec4.x, vec4.y, vec4.z, vec4.w);
+}
+
+void Shader::UploadVec3(const char* varName, const glm::vec3& vec3)
+{
+	int varLocation = GetVariableLocation(varName);
+	if (!m_BeingUsed) this->Bind();
+	glUniform3f(varLocation, vec3.x, vec3.y, vec3.z);
+}
+
+void Shader::UploadVec2(const char* varName, const glm::vec2& vec2)
+{
+	int varLocation = GetVariableLocation(varName);
+	if (!m_BeingUsed) this->Bind();
+	glUniform2f(varLocation, vec2.x, vec2.y);
+}
+
 void Shader::UploadFloat(const char* varName, float value)
 {
 	int varLocation = GetVariableLocation(varName);
@@ -181,6 +204,20 @@ void Shader::UploadUInt(const char* varName, unsigned int value)
 	int varLocation = GetVariableLocation(varName);
 	if (!m_BeingUsed) this->Bind();
 	glUniform1ui(varLocation, value);
+}
+
+void Shader::UploadMat4(const char* varName, const glm::mat4& mat4)
+{
+	int varLocation = GetVariableLocation(varName);
+	if (!m_BeingUsed) this->Bind();
+	glUniformMatrix4fv(varLocation, 1, GL_FALSE, glm::value_ptr(mat4));
+}
+
+void Shader::UploadMat3(const char* varName, const glm::mat3& mat3)
+{
+	int varLocation = GetVariableLocation(varName);
+	if (!m_BeingUsed) this->Bind();
+	glUniformMatrix3fv(varLocation, 1, GL_FALSE, glm::value_ptr(mat3));
 }
 
 void Shader::UploadIntArray(const char* varName, int length, int* array)

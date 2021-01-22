@@ -12,7 +12,9 @@ project "TruetypeExamples"
 	files {
         "include/**.h",
 		"cpp/**.cpp",
-		"../Truetype/include/**.h"
+		"../Truetype/include/**.h",
+		"vendor/glmVendor/glm/**.hpp",
+		"vendor/glmVendor/glm/**.inl",
 	}
 
     disablewarnings { 
@@ -27,13 +29,20 @@ project "TruetypeExamples"
         "include",
 		"vendor/glfwVendor/include",
 		"vendor/glad/include",
-		"../Truetype/include"
+		"vendor/freetype/include",
+		"../Truetype/include",
+		"vendor/glmVendor"
 	}
 
 	links {
 		"GLFW",
 		"Glad",
         "opengl32.lib",
+		"freetype",
+	}
+
+	libdirs {
+		"$(OutDir)"
 	}
 
     filter { "system:windows", "configurations:Debug" }
@@ -48,6 +57,7 @@ project "TruetypeExamples"
 		postbuildcommands  {
 			"copy /y \"$(SolutionDir)TruetypeExamples\\vendor\\glfwVendor\\bin\\%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}\\GLFW\\GLFW.dll\" \"$(OutDir)\\GLFW.dll\"",
 			"copy /y \"myFont.bin\" \"$(OutDir)\\myFont.bin\"",
+			"xcopy /s /e /q /y /i \"$(SolutionDir)libs\" \"$(OutDir)\" > nul",
 			"xcopy /s /e /q /y /i \"$(SolutionDir)\\%{prj.name}\\assets\" \"$(OutDir)\\assets\" > nul"
 		}
     

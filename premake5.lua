@@ -14,3 +14,4 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 include "Truetype"
 include "TruetypeExamples"
+include "TruetypeTests"

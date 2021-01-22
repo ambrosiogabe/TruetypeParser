@@ -14,6 +14,17 @@ flat out ivec2 fCharMin;
 flat out ivec2 fCharMax;
 flat out uint fCharacterId;
 
+uniform usamplerBuffer uFont;
+
+flat out uint codepoint;
+flat out int glyphOffset;
+flat out uint numContours;
+flat out uint numPoints;
+flat out int contourTableOffset;
+flat out int flagTableOffset;
+flat out int xTableOffset;
+flat out int yTableOffset;
+
 void main() 
 {
 	fColor = aColor;
@@ -23,6 +34,18 @@ void main()
 	fCharMax = aCharMax;
 	fTexCoord = aTexCoord;
 	gl_Position = vec4(aPos, 1.0);
+
+	// Divide by 2 since offset is in bytes, but we are indexing as shorts (8 bit vs 16 bit)
+	// 66 is the codepoint for the character 'A' + 1
+	codepoint = uint(fCharacterId)+1U;
+	uint glyphOffsetU = (texelFetch(uFont, int(codepoint * 2U)).r | (texelFetch(uFont, int(codepoint * 2U + 1U)).r << 8)) >> 1;
+	glyphOffset = int(glyphOffsetU);
+	numContours = texelFetch(uFont, glyphOffset).r;
+	numPoints = texelFetch(uFont, glyphOffset + int(numContours) + 1).r;
+	contourTableOffset = glyphOffset + 1;
+	flagTableOffset = contourTableOffset + int(numContours) + 1;
+	xTableOffset = flagTableOffset + int(numPoints);
+	yTableOffset = xTableOffset + int(numPoints);
 }
 
 #type fragment
@@ -36,7 +59,16 @@ flat in uint fCharacterId;
 flat in ivec2 fCharMin;
 flat in ivec2 fCharMax;
 
-uniform uint uTextureSize;
+flat in uint codepoint;
+flat in int glyphOffset;
+flat in uint numContours;
+flat in uint numPoints;
+flat in int contourTableOffset;
+flat in int flagTableOffset;
+flat in int xTableOffset;
+flat in int yTableOffset;
+
+uniform uint numGlyphs;
 uniform usamplerBuffer uFont;
 
 void parametric(in int p0, in int p1, in int p2, in float t, inout int result)
@@ -113,19 +145,6 @@ void main()
 	float newY = fTexCoord.y * (maxY - minY) + minY;
 	ivec2 pixelCoords = ivec2(int(newX), int(newY));
 
-	uint numGlyphs = texelFetch(uFont, 0).r | (texelFetch(uFont, 1).r << 8);
-	// Divide by 2 since offset is in bytes, but we are indexing as shorts (8 bit vs 16 bit)
-	// 66 is the codepoint for the character 'A' + 1
-	uint codepoint = uint(fCharacterId) + 1U;
-	uint glyphOffsetU = (texelFetch(uFont, int(codepoint * 2U)).r | (texelFetch(uFont, int(codepoint * 2U + 1U)).r << 8)) >> 1;
-	int glyphOffset = int(glyphOffsetU);
-	uint numContours = texelFetch(uFont, glyphOffset).r;
-	uint numPoints = texelFetch(uFont, glyphOffset + int(numContours) + 1).r;
-	int contourTableOffset = glyphOffset + 1;
-	int flagTableOffset = contourTableOffset + int(numContours) + 1;
-	int xTableOffset = flagTableOffset + int(numPoints);
-	int yTableOffset = xTableOffset + int(numPoints);
-
 	// If the winding number is 0, pixel is off, otherwise pixel is on
 	float windingNumber = 0.0;
 	uint point = 0U;
@@ -160,12 +179,18 @@ void main()
 			// Two on points means it's a straight line
 			if (flag1 && flag2)
 			{
-				calculateWindingNumber(p1, p2, pixelCoords, windingNumber);
+				if ((pixelCoords.x <= p1.x || pixelCoords.x <= p2.x) && pixelCoords.y >= min(p1.y, p2.y) && pixelCoords.y <= max(p1.y, p2.y))
+				{
+					calculateWindingNumber(p1, p2, pixelCoords, windingNumber);
+				}
 			}
 			// On point, off point, on point is a standard bezier curve
 			else if (flag1 && !flag2 && flag3)
 			{
-				calculateWindingNumber(p1, p2, p3, pixelCoords, windingNumber);
+				if ((pixelCoords.x <= p1.x || pixelCoords.x <= p3.x) && pixelCoords.y >= min(p1.y, p3.y) && pixelCoords.y <= max(p1.y, p3.y))
+				{
+					calculateWindingNumber(p1, p2, p3, pixelCoords, windingNumber);
+				}
 				point++;
 			}
 		}
@@ -175,5 +200,5 @@ void main()
 	// Ternary or clamp? Which is faster?
 	//float c = min(max(abs(windingNumber), 0), 1);
 	float c = windingNumber;
-	color = vec4(c, c, c, c);
+	color = vec4(fColor, 1) * vec4(c, c, c, c);
 }
