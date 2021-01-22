@@ -9,6 +9,7 @@
 class Shader
 {
 public:
+	Shader() {}
 	Shader(const const char* resourceName);
 
 	void Compile(const char* filepath);

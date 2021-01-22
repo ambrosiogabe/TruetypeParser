@@ -59,34 +59,35 @@ static unsigned int indices[] = {
 	1, 2, 3    // second triangle
 };
 
+static const int batchSize = 100;
 struct Batch
 {
-	// One batch stores up to 25 quads
-	Vertex vertices[100];
 	int size;
 	unsigned int vao;
 	unsigned int vbo;
+
+	// One batch stores up to 25 quads
+	Vertex vertices[batchSize];
 };
 
-static Batch batches[10]; // For the example we'll just allocate 10 batches
-int numBatches = 0;
-unsigned int batchEbo = 0;
-
-glm::mat4 projection = glm::ortho(0.0f, 800.0f, 0.0f, 600.0f);
+static Batch batch;
+static Shader fontShader;
+static glm::mat4 projection = glm::ortho(0.0f, 800.0f, 0.0f, 600.0f);
 
 static void generateEbo()
 {
-	int elementBuffer[100];
+	int elementBuffer[batchSize * 3];
 
 	// Generate 100 elements for 1 batch
-	for (int i = 0; i < 100; i++)
+	for (int i = 0; i < batchSize * 3; i++)
 	{
 		elementBuffer[i] = indices[(i % 6)] + ((i / 6) * 4);
 	}
 
-	glGenBuffers(1, &batchEbo);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, batchEbo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(elementBuffer), elementBuffer, GL_STATIC_READ);
+	unsigned int ebo;
+	glGenBuffers(1, &ebo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(elementBuffer), elementBuffer, GL_STATIC_DRAW);
 }
 
 static void framebufferSizeCallback(GLFWwindow* window, int width, int height)
@@ -147,7 +148,7 @@ static int findNearestPixel(int pixX, int pixY, unsigned char* bitmap, int width
 	return minDistance;
 }
 
-static SdfBitmapContainer generateSdfCodepointBitmap(int codepoint, FT_Face font, int fontSize, int padding = 5, int spread = 128, int upscaleResolution = 4096, bool flipVertically = true)
+static SdfBitmapContainer generateSdfCodepointBitmap(int codepoint, FT_Face font, int fontSize, int padding = 5, int spread = 128, int upscaleResolution = 4096, bool flipVertically = false)
 {
 	// Render a very large sized character to generate the sdf from
 	FT_Set_Pixel_Sizes(font, 0, upscaleResolution);
@@ -165,9 +166,9 @@ static SdfBitmapContainer generateSdfCodepointBitmap(int codepoint, FT_Face font
 
 	float widthScale = (float)width / (float)upscaleResolution;
 	float heightScale = (float)height / (float)upscaleResolution;
-	int characterHeight = fontSize * heightScale;
 	int characterWidth = fontSize * widthScale;
-	int bitmapWidth = fontSize + padding * 2;
+	int characterHeight = fontSize * heightScale;
+	int bitmapWidth = characterWidth + padding * 2;
 	int bitmapHeight = characterHeight + padding * 2;
 	float scaleX = (float)width / (float)characterWidth;
 	float scaleY = (float)height / (float)characterHeight;
@@ -266,10 +267,10 @@ static void uploadFontAsTexture(const char* fontFile)
 		}
 
 		characterMap[codepoint] = {
-			(float)x,
-			(float)y,
-			(float)(x + width),
-			(float)(y + height),
+			(float)x + container.xoff,
+			(float)y + container.yoff,
+			(float)(x + width - container.xoff),
+			(float)(y + height - container.yoff),
 			container.advance,
 			container.bearingX,
 			container.bearingY,
@@ -291,33 +292,40 @@ static void uploadFontAsTexture(const char* fontFile)
 	for (int codepoint = 0; codepoint <= 'z'; codepoint++)
 	{
 		SdfBitmapContainer sdf = sdfBitmaps[codepoint];
-		int width = sdf.width;
-		int height = sdf.height;
-		int xoff = sdf.xoff;
-		int yoff = sdf.yoff;
-		x = characterMap[codepoint].ux0;
-		y = characterMap[codepoint].uy0;
+		int x0 = characterMap[codepoint].ux0;
+		int y0 = characterMap[codepoint].uy0;
+		int x1 = characterMap[codepoint].ux1;
+		int y1 = characterMap[codepoint].uy1;
 
 		if (!sdf.bitmap) continue;
 
-		// TODO: FIX THE TEXTURE COORDINATES, I MUST BE SAMPLING THE WRONG PORTION OF THE TEXTURE FOR EACH CHARACTER
+		// Texture biases give a little wiggle room for sampling the textures, consider adding these as a parameter
+		float bottomLeftTextureBias = -0.1f;
+		float topRightTextureBias = 1;
 		characterMap[codepoint] = {
-			(float)(x + xoff) / (float)sdfWidth,
-			(float)(sdfHeight - y - height) / (float)sdfHeight,
-			(float)(x + width) / (float)sdfWidth,
-			(float)(sdfHeight - y + yoff) / (float)sdfHeight,
+			(float)(x0 + bottomLeftTextureBias) / (float)sdfWidth,
+			(float)(y0 + bottomLeftTextureBias) / (float)sdfHeight,
+			(float)(x1 + topRightTextureBias) / (float)sdfWidth,
+			(float)(y1 + topRightTextureBias) / (float)sdfHeight,
 			sdf.advance,
 			sdf.bearingX,
 			sdf.bearingY,
 			sdf.chScaleX,
 			sdf.chScaleY
 		};
+
+		int width = sdf.width;
+		int height = sdf.height;
+		int xoff = sdf.xoff;
+		int yoff = sdf.yoff;
+		x = x0 - xoff;
+		y = y0 - yoff;
 		for (int imgY = 0; imgY < height; imgY++)
 		{
 			for (int imgX = 0; imgX < width; imgX++)
 			{
 				unsigned char pixelData = sdf.bitmap[imgX + imgY * width];
-				int index = (x + imgX) * 4 + (sdfHeight - (y + imgY) - 1) * sdfWidth * 4;
+				int index = (x + imgX) * 4 + (y + imgY) * sdfWidth * 4;
 				TTF_ASSERT(index + 3 < endBitmap);
 				finalSdf[index] = pixelData;
 				finalSdf[index + 1] = pixelData;
@@ -345,92 +353,15 @@ static void uploadFontAsTexture(const char* fontFile)
 	FT_Done_FreeType(ft);
 }
 
-static void addCharacter(int x, int y, int size, CharInfo& charInfo)
+static void initBatch()
 {
-	for (int i = 0; i < numBatches; i++)
-	{
-		// We need to add 4 vertices
-		if (batches[i].size <= 96)
-		{
-			//{0.5f, 0.5f, 0.0f,     0.0f, 0.0f, 0.0f,   1.0f, 1.0f},
-			//{0.5f, -0.5f, 0.0f,    0.0f, 0.0f, 0.0f,   1.0f, 0.0f},
-			//{-0.5f, -0.5f, 0.0f,   0.0f, 0.0f, 0.0f,   0.0f, 0.0f},
-			//{-0.5f, 0.5f, 0.0f,    0.0f, 0.0f, 0.0f,   0.0f, 1.0f},
+	glGenVertexArrays(1, &batch.vao);
+	glBindVertexArray(batch.vao);
 
-			Batch& batch = batches[i];
-			batch.vertices[batch.size] = {
-				x + size * charInfo.chScaleX, y + size * charInfo.chScaleY, 0.0f,
-				0.0f, 0.0f, 0.0f, // Leave color as black for now
-				charInfo.ux1, charInfo.uy1
-			};
-			batch.vertices[batch.size + 1] = {
-				x + size * charInfo.chScaleX, y - size * charInfo.chScaleY, 0.0f,
-				0.0f, 0.0f, 0.0f, // Leave color as black for now
-				charInfo.ux1, charInfo.uy0
-			};
-			batch.vertices[batch.size + 2] = {
-				x - size * charInfo.chScaleX, y - size * charInfo.chScaleY, 0.0f,
-				0.0f, 0.0f, 0.0f, // Leave color as black for now
-				charInfo.ux0, charInfo.uy0
-			};
-			batch.vertices[batch.size + 3] = {
-				x - size * charInfo.chScaleX, y + size * charInfo.chScaleY, 0.0f,
-				0.0f, 0.0f, 0.0f, // Leave color as black for now
-				charInfo.ux0, charInfo.uy1
-			};
-			glBindBuffer(GL_ARRAY_BUFFER, batch.vbo);
-			glBufferSubData(GL_ARRAY_BUFFER, batch.size * sizeof(Vertex), sizeof(Vertex) * 4, (void*)&batch.vertices[batch.size]);
-			batch.size += 4;
-		}
-	}
-}
+	glGenBuffers(1, &batch.vbo);
 
-static void addText(const char* string, int x, int y, int size)
-{
-	int strLength = strlen(string);
-	for (int i = 0; i < strLength; i++)
-	{
-		char c = string[i];
-
-		if (c == ' ')
-		{
-			x += size;
-			continue;
-		}
-
-		CharInfo& charInfo = characterMap[c];
-		float xPos = x + charInfo.bearingX * size;
-		float yPos = y - (charInfo.chScaleY - charInfo.bearingY) * size;
-		addCharacter(xPos, yPos, size, charInfo);
-		x += charInfo.advance * size;
-	}
-}
-
-static void GLAPIENTRY MessageCallback(GLenum source,
-										GLenum type,
-										GLuint id,
-										GLenum severity,
-										GLsizei length,
-										const GLchar* message,
-										const void* userParam)
-{
-	fprintf(stderr, "GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n",
-		(type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : ""),
-		type, severity, message);
-}
-
-static void generateBatch()
-{
-	Batch& currentBatch = batches[numBatches];
-
-	glGenVertexArrays(1, &currentBatch.vao);
-	glBindVertexArray(currentBatch.vao);
-
-	glGenBuffers(1, &currentBatch.vbo);
-
-	// 1 Batch can hold 100 vertices, consider abstracting 100 to a variable
-	glBindBuffer(GL_ARRAY_BUFFER, currentBatch.vbo);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * 100, nullptr, GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, batch.vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * batchSize, nullptr, GL_DYNAMIC_DRAW);
 
 	// Does this even work? I guess we'll find out
 	//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, batchEbo);
@@ -446,8 +377,148 @@ static void generateBatch()
 	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(offsetof(Vertex, texX)));
 	glEnableVertexAttribArray(2);
 	glBindVertexArray(0);
-	
-	numBatches++;
+}
+
+static void flushBatch()
+{
+	// Clear the buffer and upload the contents of the current buffer to the GPU
+	glBindBuffer(GL_ARRAY_BUFFER, batch.vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * batch.size, nullptr, GL_DYNAMIC_DRAW);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex) * batch.size, batch.vertices);
+
+	// Draw the font data
+	fontShader.Bind();
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, fontTextureHandle);
+	fontShader.UploadInt("uFont", 0);
+	fontShader.UploadMat4("uProjection", projection);
+
+	// Flush it to the screen so the next batch can be rendered
+	glBindVertexArray(batch.vao);
+	glDrawElements(GL_TRIANGLES, batch.size * 6, GL_UNSIGNED_INT, 0);
+
+	batch.size = 0;
+}
+
+static void addCharacter(int x, int y, int size, CharInfo& charInfo, int rgb)
+{
+	// If we have no more room in the current batch flush it and start with a fresh batch
+	if (batch.size >= batchSize - 4)
+	{
+		flushBatch();
+	}
+
+	// We need to add 4 vertices
+	//{0.5f, 0.5f, 0.0f,     0.0f, 0.0f, 0.0f,   1.0f, 1.0f},
+	//{0.5f, -0.5f, 0.0f,    0.0f, 0.0f, 0.0f,   1.0f, 0.0f},
+	//{-0.5f, -0.5f, 0.0f,   0.0f, 0.0f, 0.0f,   0.0f, 0.0f},
+	//{-0.5f, 0.5f, 0.0f,    0.0f, 0.0f, 0.0f,   0.0f, 1.0f},
+	float r = (float)((rgb >> 16) & 0XFF) / 255.0f;
+	float g = (float)((rgb >> 8) & 0XFF) / 255.0f;
+	float b = (float)((rgb >> 0) & 0xFF) / 255.0f;
+
+	float x0 = x;
+	float y0 = y;
+	float x1 = x + size * charInfo.chScaleX;
+	float y1 = y + size * charInfo.chScaleY;
+
+	batch.vertices[batch.size] = {
+		x1, y1, 0.0f,
+		r, g, b,
+		charInfo.ux1, charInfo.uy1
+	};
+	batch.vertices[batch.size + 1] = {
+		x1, y0, 0.0f,
+		r, g, b,
+		charInfo.ux1, charInfo.uy0
+	};
+	batch.vertices[batch.size + 2] = {
+		x0, y0, 0.0f,
+		r, g, b,
+		charInfo.ux0, charInfo.uy0
+	};
+	batch.vertices[batch.size + 3] = {
+		x0, y1, 0.0f,
+		r, g, b,
+		charInfo.ux0, charInfo.uy1
+	};
+	batch.size += 4;
+}
+
+static void addText(const char* string, int x, int y, int size, int rgb)
+{
+	int strLength = strlen(string);
+	for (int i = 0; i < strLength; i++)
+	{
+		char c = string[i];
+
+		CharInfo& charInfo = characterMap[c];
+		float xPos = x + charInfo.bearingX * size;
+		float yPos = y - (charInfo.chScaleY - charInfo.bearingY) * size;
+		addCharacter(xPos, yPos, size, charInfo, rgb);
+		x += charInfo.advance * size;
+	}
+}
+
+static void GLAPIENTRY MessageCallback(GLenum source,
+										GLenum type,
+										GLuint id,
+										GLenum severity,
+										GLsizei length,
+										const GLchar* message,
+										const void* userParam)
+{
+	if (severity == GL_DEBUG_SEVERITY_NOTIFICATION)
+	{
+		return;
+	}
+
+	printf("---------------------opengl-callback-start------------\n");
+	printf("message: %s\n", message);
+	printf("type: ");
+	switch (type)
+	{
+	case GL_DEBUG_TYPE_ERROR:
+		printf("ERROR\n");
+		break;
+	case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR:
+		printf("DEPRECATED_BEHAVIOR\n");
+		break;
+	case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:
+		printf("UNDEFINED_BEHAVIOR\n");
+		break;
+	case GL_DEBUG_TYPE_PORTABILITY:
+		printf("PORTABILITY\n");
+		break;
+	case GL_DEBUG_TYPE_PERFORMANCE:
+		printf("PERFORMANCE\n");
+		break;
+	case GL_DEBUG_TYPE_OTHER:
+		printf("OTHER\n");
+		break;
+	}
+
+	printf("id: %u\n", id);
+	printf("severity: ");
+	switch (severity)
+	{
+	case GL_DEBUG_SEVERITY_LOW:
+		printf("LOW\n");
+		break;
+	case GL_DEBUG_SEVERITY_MEDIUM:
+		printf("MEDIUM\n");
+		break;
+	case GL_DEBUG_SEVERITY_HIGH:
+		printf("HIGH\n");
+		break;
+	case GL_DEBUG_SEVERITY_NOTIFICATION:
+		printf("NOTIFICATION\n");
+		break;
+	default:
+		printf("Unkown\n");
+		break;
+	}
+	printf("---------------------opengl-callback-end--------------\n");
 }
 
 static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mode)
@@ -491,7 +562,7 @@ static GLFWwindow* init()
 	glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
 
 	uploadFontAsTexture("C:/Windows/Fonts/Arial.ttf");
-	generateBatch();
+	initBatch();
 
 	return window;
 }
@@ -499,29 +570,38 @@ static GLFWwindow* init()
 void runGlWindow()
 {
 	GLFWwindow* window = init();
-	Shader fontShader = Shader("assets/sdfShader.glsl");
+	fontShader = Shader("assets/sdfShader.glsl");
 
-	addText("Hello world!", 200, 200, 32);
-
+	int counter = 0;
+	int numberOfAs = 1;
 	while (!glfwWindowShouldClose(window))
 	{
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		// Draw the font data
-		fontShader.Bind();
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, fontTextureHandle);
-		fontShader.UploadInt("uFont", 0);
-		fontShader.UploadMat4("uProjection", projection);
+		addText("Hello world!", 200, 200, 32, 0x00FF00);
 
-		for (int i = 0; i < numBatches; i++)
+		counter++;
+		if (counter % 10 == 0)
 		{
-			glBindVertexArray(batches[i].vao);
-			glDrawElements(GL_TRIANGLES, batches[i].size * 6, GL_UNSIGNED_INT, 0);
+			numberOfAs++;
 		}
 
-		fontShader.Unbind();
+		int x = 0;
+		int y = 600 - 32;
+		for (int i = 0; i < numberOfAs; i++)
+		{
+			if (x >= 700)
+			{
+				x = 0;
+				y -= 32;
+			}
+			addText("a", x, y, 32, 0X0000FF);
+			x += 32;
+		}
+
+		// If there are any lingering batches, this will draw it
+		flushBatch();
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();

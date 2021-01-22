@@ -29,13 +29,12 @@ void main()
 {
 	float c = texture(uFont, fTexCoords).g;
 	if (c >= 0.5)
-		color = vec4(0, 0, 0, 1);
-	else if (c >= 0.48)
+		color = vec4(fColor, 1);
+	else if (c >= 0.4)
 	{
-		c = 1.0 - smoothstep(0.48, 0.5, c);
-		color = vec4(c, c, c, 1);
+		c = smoothstep(0.4, 0.5, c);
+		color = vec4(fColor, c);
 	}
 	else
-		color = vec4(1, 1, 1, 0);
-	//color = vec4(1, 1, 0, 1);
+		color = vec4(0, 0, 0, 0);
 }
