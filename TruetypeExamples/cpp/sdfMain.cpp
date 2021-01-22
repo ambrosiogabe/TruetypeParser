@@ -74,6 +74,9 @@ static Batch batch;
 static Shader fontShader;
 static glm::mat4 projection = glm::ortho(0.0f, 800.0f, 0.0f, 600.0f);
 
+static Batch batches[10];
+static int numBatches = 0;
+
 static void generateEbo()
 {
 	int elementBuffer[batchSize * 3];
@@ -192,7 +195,7 @@ static SdfBitmapContainer generateSdfCodepointBitmap(int codepoint, FT_Face font
 			}
 		}
 	}
-	
+
 	FT_Set_Pixel_Sizes(font, 0, 64.0f);
 	FT_Load_Char(font, codepoint, FT_LOAD_RENDER);
 	return {
@@ -201,7 +204,7 @@ static SdfBitmapContainer generateSdfCodepointBitmap(int codepoint, FT_Face font
 		(float)(font->glyph->metrics.horiAdvance >> 6) / 64.0f,
 		(float)(font->glyph->metrics.horiBearingX >> 6) / (float)64.0f,
 		(float)(font->glyph->metrics.horiBearingY >> 6) / (float)64.0f,
-		(float)(font->glyph->metrics.width >> 6) / (float)64.0f, 
+		(float)(font->glyph->metrics.width >> 6) / (float)64.0f,
 		(float)(font->glyph->metrics.height >> 6) / (float)64.0f,
 		sdfBitmap
 	};
@@ -379,6 +382,33 @@ static void initBatch()
 	glBindVertexArray(0);
 }
 
+static void generateBatch()
+{
+	glGenVertexArrays(1, &batches[numBatches].vao);
+	glBindVertexArray(batches[numBatches].vao);
+
+	glGenBuffers(1, &batches[numBatches].vbo);
+
+	glBindBuffer(GL_ARRAY_BUFFER, batches[numBatches].vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * batchSize, nullptr, GL_DYNAMIC_DRAW);
+
+	// Does this even work? I guess we'll find out
+	//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, batchEbo);
+	generateEbo();
+
+	size_t stride = sizeof(Vertex);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, 0);
+	glEnableVertexAttribArray(0);
+
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(offsetof(Vertex, r)));
+	glEnableVertexAttribArray(1);
+
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(offsetof(Vertex, texX)));
+	glEnableVertexAttribArray(2);
+	glBindVertexArray(0);
+	numBatches++;
+}
+
 static void flushBatch()
 {
 	// Clear the buffer and upload the contents of the current buffer to the GPU
@@ -403,46 +433,56 @@ static void flushBatch()
 static void addCharacter(int x, int y, int size, CharInfo& charInfo, int rgb)
 {
 	// If we have no more room in the current batch flush it and start with a fresh batch
-	if (batch.size >= batchSize - 4)
+	//if (batch.size >= batchSize - 4)
+	//{
+	//	flushBatch();
+	//}
+
+	if (batches[numBatches - 1].size <= batchSize - 4)
 	{
-		flushBatch();
+		// We need to add 4 vertices
+		//{0.5f, 0.5f, 0.0f,     0.0f, 0.0f, 0.0f,   1.0f, 1.0f},
+		//{0.5f, -0.5f, 0.0f,    0.0f, 0.0f, 0.0f,   1.0f, 0.0f},
+		//{-0.5f, -0.5f, 0.0f,   0.0f, 0.0f, 0.0f,   0.0f, 0.0f},
+		//{-0.5f, 0.5f, 0.0f,    0.0f, 0.0f, 0.0f,   0.0f, 1.0f},
+		float r = (float)((rgb >> 16) & 0XFF) / 255.0f;
+		float g = (float)((rgb >> 8) & 0XFF) / 255.0f;
+		float b = (float)((rgb >> 0) & 0xFF) / 255.0f;
+
+		float x0 = x;
+		float y0 = y;
+		float x1 = x + size * charInfo.chScaleX;
+		float y1 = y + size * charInfo.chScaleY;
+
+		Batch& batch = batches[numBatches - 1];
+		batch.vertices[batch.size] = {
+			x1, y1, 0.0f,
+			r, g, b,
+			charInfo.ux1, charInfo.uy1
+		};
+		batch.vertices[batch.size + 1] = {
+			x1, y0, 0.0f,
+			r, g, b,
+			charInfo.ux1, charInfo.uy0
+		};
+		batch.vertices[batch.size + 2] = {
+			x0, y0, 0.0f,
+			r, g, b,
+			charInfo.ux0, charInfo.uy0
+		};
+		batch.vertices[batch.size + 3] = {
+			x0, y1, 0.0f,
+			r, g, b,
+			charInfo.ux0, charInfo.uy1
+		};
+		glBindBuffer(GL_ARRAY_BUFFER, batch.vbo);
+		glBufferSubData(GL_ARRAY_BUFFER, batch.size * sizeof(Vertex), sizeof(Vertex) * 4, &batch.vertices[batch.size]);
+		batch.size += 4;
 	}
-
-	// We need to add 4 vertices
-	//{0.5f, 0.5f, 0.0f,     0.0f, 0.0f, 0.0f,   1.0f, 1.0f},
-	//{0.5f, -0.5f, 0.0f,    0.0f, 0.0f, 0.0f,   1.0f, 0.0f},
-	//{-0.5f, -0.5f, 0.0f,   0.0f, 0.0f, 0.0f,   0.0f, 0.0f},
-	//{-0.5f, 0.5f, 0.0f,    0.0f, 0.0f, 0.0f,   0.0f, 1.0f},
-	float r = (float)((rgb >> 16) & 0XFF) / 255.0f;
-	float g = (float)((rgb >> 8) & 0XFF) / 255.0f;
-	float b = (float)((rgb >> 0) & 0xFF) / 255.0f;
-
-	float x0 = x;
-	float y0 = y;
-	float x1 = x + size * charInfo.chScaleX;
-	float y1 = y + size * charInfo.chScaleY;
-
-	batch.vertices[batch.size] = {
-		x1, y1, 0.0f,
-		r, g, b,
-		charInfo.ux1, charInfo.uy1
-	};
-	batch.vertices[batch.size + 1] = {
-		x1, y0, 0.0f,
-		r, g, b,
-		charInfo.ux1, charInfo.uy0
-	};
-	batch.vertices[batch.size + 2] = {
-		x0, y0, 0.0f,
-		r, g, b,
-		charInfo.ux0, charInfo.uy0
-	};
-	batch.vertices[batch.size + 3] = {
-		x0, y1, 0.0f,
-		r, g, b,
-		charInfo.ux0, charInfo.uy1
-	};
-	batch.size += 4;
+	else
+	{
+		generateBatch();
+	}
 }
 
 static void addText(const char* string, int x, int y, int size, int rgb)
@@ -461,12 +501,12 @@ static void addText(const char* string, int x, int y, int size, int rgb)
 }
 
 static void GLAPIENTRY MessageCallback(GLenum source,
-										GLenum type,
-										GLuint id,
-										GLenum severity,
-										GLsizei length,
-										const GLchar* message,
-										const void* userParam)
+	GLenum type,
+	GLuint id,
+	GLenum severity,
+	GLsizei length,
+	const GLchar* message,
+	const void* userParam)
 {
 	if (severity == GL_DEBUG_SEVERITY_NOTIFICATION)
 	{
@@ -562,7 +602,7 @@ static GLFWwindow* init()
 	glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
 
 	uploadFontAsTexture("C:/Windows/Fonts/Arial.ttf");
-	initBatch();
+	//initBatch();
 
 	return window;
 }
@@ -571,26 +611,22 @@ void runGlWindow()
 {
 	GLFWwindow* window = init();
 	fontShader = Shader("assets/sdfShader.glsl");
+	generateBatch();
+	addText("Hello world!", 200, 200, 32, 0x00FF00);
 
 	int counter = 0;
 	int numberOfAs = 1;
+	int x = 0;
+	int y = 600 - 32;
 	while (!glfwWindowShouldClose(window))
 	{
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		addText("Hello world!", 200, 200, 32, 0x00FF00);
-
 		counter++;
 		if (counter % 10 == 0)
 		{
 			numberOfAs++;
-		}
-
-		int x = 0;
-		int y = 600 - 32;
-		for (int i = 0; i < numberOfAs; i++)
-		{
 			if (x >= 700)
 			{
 				x = 0;
@@ -600,8 +636,36 @@ void runGlWindow()
 			x += 32;
 		}
 
+		// Draw the font data
+		fontShader.Bind();
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, fontTextureHandle);
+		fontShader.UploadInt("uFont", 0);
+		fontShader.UploadMat4("uProjection", projection);
+
+		for (int i = 0; i < numBatches; i++)
+		{
+			Batch& batch = batches[i];
+			// Flush it to the screen so the next batch can be rendered
+			glBindVertexArray(batch.vao);
+			glDrawElements(GL_TRIANGLES, batch.size * 6, GL_UNSIGNED_INT, 0);
+		}
+
+		//int x = 0;
+		//int y = 600 - 32;
+		//for (int i = 0; i < numberOfAs; i++)
+		//{
+		//	if (x >= 700)
+		//	{
+		//		x = 0;
+		//		y -= 32;
+		//	}
+		//	addText("a", x, y, 32, 0X0000FF);
+		//	x += 32;
+		//}
+
 		// If there are any lingering batches, this will draw it
-		flushBatch();
+		//flushBatch();
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
